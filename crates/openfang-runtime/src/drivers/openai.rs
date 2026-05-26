@@ -85,9 +85,9 @@ impl OpenAIDriver {
                 AZURE_API_VERSION,
             )
         } else {
-            // Kimi K2/K2.5 models live on api.moonshot.cn, not api.moonshot.ai.
+            // Kimi K2/K2.5 models use a separate base URL (configurable via MOONSHOT_KIMI_BASE_URL).
             // When the moonshot provider is configured with the default .ai URL
-            // but the model is a kimi-k2* model, redirect to the .cn endpoint.
+            // If the base URL is api.moonshot.ai and the model is kimi-k2*, use the Kimi-specific URL.
             let effective_url = if self.base_url.contains("api.moonshot.ai")
                 && model.to_lowercase().starts_with("kimi-k2")
             {
@@ -1195,7 +1195,8 @@ impl LlmDriver for OpenAIDriver {
                 buffer.push_str(&String::from_utf8_lossy(&chunk));
 
                 // Process complete lines
-                while let Some(pos) = buffer.find('\n') {
+                while let Some(pos) = buffer.find('
+') {
                     let line = buffer[..pos].trim_end().to_string();
                     buffer = buffer[pos + 1..].to_string();
 
@@ -1561,7 +1562,9 @@ fn extract_think_tags(text: &str) -> (String, Option<String>) {
     if thinking_parts.is_empty() {
         (cleaned, None)
     } else {
-        (cleaned, Some(thinking_parts.join("\n\n")))
+        (cleaned, Some(thinking_parts.join("
+
+")))
     }
 }
 
@@ -1579,7 +1582,9 @@ fn extract_thinking_summary(thinking: &str) -> String {
 
     // Take the last non-empty paragraph (models usually conclude with their answer)
     let paragraphs: Vec<&str> = trimmed
-        .split("\n\n")
+        .split("
+
+")
         .map(|p| p.trim())
         .filter(|p| !p.is_empty())
         .collect();
@@ -1713,7 +1718,8 @@ mod tests {
 
     #[test]
     fn test_parse_groq_failed_tool_call() {
-        let body = r#"{"error":{"message":"Failed to call a function.","type":"invalid_request_error","code":"tool_use_failed","failed_generation":"<function=web_fetch{\"url\": \"https://example.com\"}></function>\n"}}"#;
+        let body = r#"{"error":{"message":"Failed to call a function.","type":"invalid_request_error","code":"tool_use_failed","failed_generation":"<function=web_fetch{\"url\": \"https://example.com\"}></function>
+"}}"#;
         let result = parse_groq_failed_tool_call(body);
         assert!(result.is_some());
         let resp = result.unwrap();
@@ -1843,7 +1849,9 @@ mod tests {
 
     #[test]
     fn test_extract_think_tags_only_thinking() {
-        let input = "<think>I need to think about this carefully.\n\nThe user wants to know about Rust.</think>";
+        let input = "<think>I need to think about this carefully.
+
+The user wants to know about Rust.</think>";
         let (cleaned, thinking) = extract_think_tags(input);
         assert_eq!(cleaned, "");
         assert!(thinking.is_some());
@@ -1885,7 +1893,11 @@ mod tests {
 
     #[test]
     fn test_extract_thinking_summary_multiple_paragraphs() {
-        let input = "First I need to consider X.\n\nThen I should check Y.\n\nThe answer is 42.";
+        let input = "First I need to consider X.
+
+Then I should check Y.
+
+The answer is 42.";
         let summary = extract_thinking_summary(input);
         assert_eq!(summary, "The answer is 42.");
     }
@@ -2013,7 +2025,7 @@ mod tests {
     #[test]
     fn test_assemble_moonshot_keeps_legacy_field_only() {
         let driver =
-            OpenAIDriver::new("test".to_string(), "https://api.moonshot.cn/v1".to_string());
+            OpenAIDriver::new("test".to_string(), "https://api.moonshot.ai/v1".to_string());
         let blocks = vec![ContentBlock::ToolUse {
             id: "call_1".to_string(),
             name: "search".to_string(),
